@@ -1,0 +1,23 @@
+name: selftest
+on:
+  push:
+  pull_request:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Runner self-tests
+        run: python skills/integrate/scripts/toolchain_harness.py --self-test
+      - name: Reference suite
+        run: python skills/integrate/scripts/toolchain_harness.py skills/integrate/examples/reference/suite.json --evidence /tmp/ev
+      - name: Reference live job
+        run: python skills/integrate/scripts/toolchain_harness.py skills/integrate/examples/reference/suite.json --job skills/integrate/examples/reference/job.json --evidence /tmp/ev
+      - name: Kit consistency
+        run: python skills/integrate/scripts/check_kit.py

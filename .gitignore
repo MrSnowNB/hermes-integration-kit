@@ -1,0 +1,15 @@
+.env
+.env.*
+auth.json
+honcho.json
+state.db
+*.session*
+sessions.jsonl
+pgdata/
+*.gguf
+*.gguf.part
+evidence/
+__pycache__/
+*.pyc
+.obsidian/workspace*.json
+.DS_Store

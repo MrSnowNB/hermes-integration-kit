@@ -1,0 +1,10 @@
+{
+  "schema_version": "1",
+  "id": "JOB-{{component}}",
+  "stage": "{{component}}",
+  "timeout_s": 300,
+  "input": {
+    "mode": "live",
+    "todo": "Name the real inputs this job reads, as paths relative to synthetic/"
+  }
+}

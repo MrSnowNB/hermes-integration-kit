@@ -1,0 +1,23 @@
+# Files that stay on the host that owns them
+
+This repository holds docs, the skill, scripts, templates, and synthetic
+fixtures. These never enter it:
+
+.env
+.env.*
+auth.json
+honcho.json
+state.db
+*.session*
+sessions.jsonl
+pgdata
+*.gguf
+*.gguf.part
+evidence/
+api_key=
+sk-
+pk-lf-
+sk-lf-
+
+Live evidence stays in each project's own evidence folder, outside Git
+unless the operator reviews and commits a scrubbed copy.

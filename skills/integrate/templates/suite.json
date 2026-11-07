@@ -1,0 +1,40 @@
+{
+  "schema_version": "1",
+  "suite_id": "{{component}}-synthetic-v1",
+  "adapters": {
+    "{{component}}": ["{python}", "{root}/../wrapper/adapter.py"]
+  },
+  "cases": [
+    {
+      "id": "PASS-KNOWN-GOOD",
+      "stage": "{{component}}",
+      "timeout_s": 60,
+      "input": {"mode": "synthetic", "todo": "Fixture whose correct result is pass"},
+      "expected_exit": 0,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "pass"}
+      ]
+    },
+    {
+      "id": "BLOCK-PLANTED-FAULT",
+      "stage": "{{component}}",
+      "timeout_s": 60,
+      "input": {"mode": "synthetic", "todo": "Fixture with one planted fault the tool must catch"},
+      "expected_exit": 1,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "block"},
+        {"path": "reason_codes", "op": "contains", "value": "TODO_REASON_CODE"}
+      ]
+    },
+    {
+      "id": "ERROR-BAD-INPUT",
+      "stage": "{{component}}",
+      "timeout_s": 60,
+      "input": {"mode": "synthetic", "todo": "Malformed or missing input the tool cannot judge"},
+      "expected_exit": 2,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "error"}
+      ]
+    }
+  ]
+}

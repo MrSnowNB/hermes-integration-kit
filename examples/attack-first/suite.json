@@ -1,0 +1,294 @@
+{
+  "schema_version": "1",
+  "suite_id": "attack-first-toolchain-contracts-v1",
+  "adapters": {
+    "tracing": ["{python}", "{root}/adapters/tracing.py"],
+    "trajectory": ["{python}", "{root}/adapters/trajectory.py"],
+    "csv": ["{python}", "{root}/adapters/csv.py"],
+    "tracking": ["{python}", "{root}/adapters/tracking.py"],
+    "agreement": ["{python}", "{root}/adapters/agreement.py"],
+    "harvest": ["{python}", "{root}/adapters/harvest.py"]
+  },
+  "cases": [
+    {
+      "id": "TRACE-OK", "stage": "tracing", "timeout_s": 90,
+      "input": {"mode": "synthetic", "scenario": "fixed-observer-events", "session_id": "synthetic-session-001", "turns": 1, "generations": 1, "tools": ["read_file", "edit_file", "run_tests"], "input_tokens": 100, "output_tokens": 20, "cost_usd": null, "capture_mode": "metadata", "canaries": ["synthetic.parent@example.invalid", "CANARY_NOT_A_REAL_SECRET_123", "https://example.invalid/video?token=CANARY_SIGNED_URL"]},
+      "expected_exit": 0,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "pass"},
+        {"path": "metrics.turns", "op": "eq", "value": 1},
+        {"path": "metrics.generations", "op": "eq", "value": 1},
+        {"path": "metrics.tool_calls", "op": "eq", "value": 3},
+        {"path": "metrics.total_tokens", "op": "eq", "value": 120},
+        {"path": "metrics.cost_usd", "op": "eq", "value": null},
+        {"path": "metrics.canary_leaks", "op": "eq", "value": 0},
+        {"path": "metrics.linked_observations", "op": "eq", "value": true}
+      ]
+    },
+    {
+      "id": "TRACE-MISSING", "stage": "tracing", "timeout_s": 90,
+      "input": {"mode": "synthetic", "scenario": "missing-all-credential-aliases", "fresh_process": true, "trace_deadline_s": 30},
+      "expected_exit": 2,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "error"},
+        {"path": "reason_codes", "op": "contains", "value": "TRACE_MISSING"},
+        {"path": "metrics.agent_completed", "op": "eq", "value": true},
+        {"path": "metrics.received_traces", "op": "eq", "value": 0}
+      ]
+    },
+    {
+      "id": "TRACE-LEAK", "stage": "tracing",
+      "input": {"mode": "synthetic", "scenario": "leaked-canary-in-export", "export": {"metadata": {"debug": "synthetic.parent@example.invalid"}}, "canaries": ["synthetic.parent@example.invalid"]},
+      "expected_exit": 1,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "block"},
+        {"path": "reason_codes", "op": "contains", "value": "PRIVACY_CANARY"},
+        {"path": "metrics.canary_leaks", "op": "eq", "value": 1}
+      ]
+    },
+    {
+      "id": "TRAJ-OK", "stage": "trajectory",
+      "input": {"mode": "synthetic", "policy": "exact", "expected": ["read_file", "edit_file", "run_tests"], "actual": ["read_file", "edit_file", "run_tests"], "max_calls": 3, "tests_exit": 0, "forbidden": ["send_message"]},
+      "expected_exit": 0,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "pass"},
+        {"path": "metrics.exact_match", "op": "eq", "value": true},
+        {"path": "metrics.deepeval_score", "op": "approx", "value": 1.0},
+        {"path": "metrics.tool_calls", "op": "eq", "value": 3}
+      ]
+    },
+    {
+      "id": "TRAJ-LOOP", "stage": "trajectory",
+      "input": {"mode": "synthetic", "policy": "exact", "expected": ["read_file", "edit_file", "run_tests"], "actual": ["read_file", "read_file", "read_file", "read_file", "read_file", "read_file", "read_file", "edit_file", "run_tests"], "max_calls": 3, "tests_exit": 0},
+      "expected_exit": 1,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "block"},
+        {"path": "reason_codes", "op": "contains", "value": "STEP_BUDGET"},
+        {"path": "metrics.tool_calls", "op": "eq", "value": 9}
+      ]
+    },
+    {
+      "id": "TRAJ-SKIP", "stage": "trajectory",
+      "input": {"mode": "synthetic", "policy": "exact", "expected": ["read_file", "edit_file", "run_tests"], "actual": ["read_file", "edit_file"], "max_calls": 3, "tests_exit": null},
+      "expected_exit": 1,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "block"},
+        {"path": "reason_codes", "op": "contains", "value": "REQUIRED_TOOL_MISSING"}
+      ]
+    },
+    {
+      "id": "TRAJ-TEST-FAIL", "stage": "trajectory",
+      "input": {"mode": "synthetic", "policy": "exact", "expected": ["read_file", "edit_file", "run_tests"], "actual": ["read_file", "edit_file", "run_tests"], "max_calls": 3, "tests_exit": 1},
+      "expected_exit": 1,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "block"},
+        {"path": "reason_codes", "op": "contains", "value": "OUTCOME_FAILED"}
+      ]
+    },
+    {
+      "id": "TRAJ-FORBIDDEN", "stage": "trajectory",
+      "input": {"mode": "synthetic", "policy": "outcome", "expected": ["run_tests"], "actual": ["run_tests", "send_message"], "max_calls": 4, "tests_exit": 0, "forbidden": ["send_message"]},
+      "expected_exit": 1,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "block"},
+        {"path": "reason_codes", "op": "contains", "value": "FORBIDDEN_TOOL"}
+      ]
+    },
+    {
+      "id": "CSV-PAIRWISE", "stage": "csv",
+      "input": {"mode": "synthetic", "scenario": "pairwise", "dimensions": {"event_type": ["game", "practice"], "notes": ["", "Bring water"], "newline": ["LF", "CRLF"], "location": ["Gym", "Gym, North"], "bom": [false, true]}, "header": ["event_id", "date", "start_time", "end_time", "event_type", "location", "notes"], "base": {"event_id": "EV-001", "date": "2026-11-09", "start_time": "18:00", "end_time": "19:00"}},
+      "expected_exit": 0,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "pass"},
+        {"path": "metrics.required_pairs", "op": "eq", "value": 40},
+        {"path": "metrics.covered_pairs", "op": "eq", "value": 40},
+        {"path": "metrics.mismatches", "op": "eq", "value": 0},
+        {"path": "metrics.fixture_count", "op": "ge", "value": 1},
+        {"path": "metrics.fixture_count", "op": "le", "value": 32}
+      ]
+    },
+    {
+      "id": "CSV-QUOTED", "stage": "csv",
+      "input": {"mode": "synthetic", "scenario": "parse", "text": "event_id,date,start_time,end_time,event_type,location,notes\r\nEV-001,2026-11-09,18:00,19:00,practice,\"Gym, North\",\r\n"},
+      "expected_exit": 0,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "pass"},
+        {"path": "metrics.parsed_rows", "op": "eq", "value": [{"event_id": "EV-001", "date": "2026-11-09", "start_time": "18:00", "end_time": "19:00", "event_type": "practice", "location": "Gym, North", "notes": ""}]}
+      ]
+    },
+    {
+      "id": "CSV-SHORT-ROW", "stage": "csv",
+      "input": {"mode": "synthetic", "scenario": "parse", "text": "event_id,date,start_time,end_time,event_type,location,notes\nEV-001,2026-11-09,18:00,19:00,practice\n"},
+      "expected_exit": 1,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "block"},
+        {"path": "reason_codes", "op": "contains", "value": "CSV_COLUMN_COUNT"},
+        {"path": "metrics.error_line", "op": "eq", "value": 2},
+        {"path": "metrics.writes", "op": "eq", "value": 0}
+      ]
+    },
+    {
+      "id": "CSV-BAD-DATE", "stage": "csv",
+      "input": {"mode": "synthetic", "scenario": "parse", "text": "event_id,date,start_time,end_time,event_type,location,notes\nEV-001,2026-02-30,18:00,19:00,practice,Gym,\n"},
+      "expected_exit": 1,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "block"},
+        {"path": "reason_codes", "op": "contains", "value": "CSV_DATE"},
+        {"path": "metrics.writes", "op": "eq", "value": 0}
+      ]
+    },
+    {
+      "id": "CSV-EMPTY", "stage": "csv",
+      "input": {"mode": "synthetic", "scenario": "parse", "text": "event_id,date,start_time,end_time,event_type,location,notes\n"},
+      "expected_exit": 1,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "block"},
+        {"path": "reason_codes", "op": "contains", "value": "NO_EVENTS"}
+      ]
+    },
+    {
+      "id": "TRACK-PERFECT", "stage": "tracking",
+      "input": {"mode": "synthetic", "generator": "two-nonoverlapping-tracks-v1", "frames": 300, "fault": "none"},
+      "expected_exit": 0,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "pass"},
+        {"path": "metrics.hota", "op": "approx", "value": 1.0},
+        {"path": "metrics.idf1", "op": "approx", "value": 1.0},
+        {"path": "metrics.deta", "op": "approx", "value": 1.0},
+        {"path": "metrics.assa", "op": "approx", "value": 1.0}
+      ]
+    },
+    {
+      "id": "TRACK-SWAP", "stage": "tracking",
+      "input": {"mode": "synthetic", "generator": "two-nonoverlapping-tracks-v1", "frames": 300, "fault": "swap-ids", "from_frame": 151},
+      "expected_exit": 1,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "block"},
+        {"path": "reason_codes", "op": "contains", "value": "TRACKING_REGRESSION"},
+        {"path": "metrics.hota", "op": "approx", "value": 0.5773502692},
+        {"path": "metrics.idf1", "op": "approx", "value": 0.5},
+        {"path": "metrics.deta", "op": "approx", "value": 1.0},
+        {"path": "metrics.assa", "op": "approx", "value": 0.3333333333}
+      ]
+    },
+    {
+      "id": "TRACK-DROP", "stage": "tracking",
+      "input": {"mode": "synthetic", "generator": "two-nonoverlapping-tracks-v1", "frames": 300, "fault": "drop-both-tracks", "from_frame": 100, "through_frame": 130},
+      "expected_exit": 1,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "block"},
+        {"path": "reason_codes", "op": "contains", "value": "TRACKING_REGRESSION"},
+        {"path": "metrics.hota", "op": "approx", "value": 0.8966666667},
+        {"path": "metrics.deta", "op": "approx", "value": 0.8966666667},
+        {"path": "metrics.assa", "op": "approx", "value": 0.8966666667},
+        {"path": "metrics.idf1", "op": "approx", "value": 0.9455184534}
+      ]
+    },
+    {
+      "id": "TRACK-FRAME-ZERO", "stage": "tracking",
+      "input": {"mode": "synthetic", "generator": "two-nonoverlapping-tracks-v1", "frames": 300, "fault": "frame-zero"},
+      "expected_exit": 2,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "error"},
+        {"path": "reason_codes", "op": "contains", "value": "TRACK_FORMAT"}
+      ]
+    },
+    {
+      "id": "AGREE-HIGH", "stage": "agreement",
+      "input": {"mode": "synthetic", "scenario": "paired-labels", "confusion": [[48, 2], [3, 47]], "minimum_n": 100, "kappa_threshold": 0.8},
+      "expected_exit": 0,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "pass"},
+        {"path": "metrics.agreement", "op": "approx", "value": 0.95},
+        {"path": "metrics.kappa", "op": "approx", "value": 0.9}
+      ]
+    },
+    {
+      "id": "AGREE-SKEW", "stage": "agreement",
+      "input": {"mode": "synthetic", "scenario": "paired-labels", "confusion": [[60, 20], [20, 0]], "minimum_n": 100, "kappa_threshold": 0.8},
+      "expected_exit": 1,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "block"},
+        {"path": "reason_codes", "op": "contains", "value": "LOW_AGREEMENT"},
+        {"path": "metrics.agreement", "op": "approx", "value": 0.6},
+        {"path": "metrics.kappa", "op": "approx", "value": -0.25}
+      ]
+    },
+    {
+      "id": "AGREE-UNDEFINED", "stage": "agreement",
+      "input": {"mode": "synthetic", "scenario": "paired-labels", "confusion": [[100, 0], [0, 0]], "minimum_n": 100, "kappa_threshold": 0.8},
+      "expected_exit": 2,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "error"},
+        {"path": "reason_codes", "op": "contains", "value": "KAPPA_UNDEFINED"},
+        {"path": "metrics.kappa", "op": "eq", "value": null}
+      ]
+    },
+    {
+      "id": "AGREE-CORRECTION", "stage": "agreement",
+      "input": {"mode": "synthetic", "scenario": "prevalence-correction", "observed_rate": 0.41, "sensitivity": 0.9, "specificity": 0.8},
+      "expected_exit": 0,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "pass"},
+        {"path": "metrics.corrected_prevalence", "op": "approx", "value": 0.3}
+      ]
+    },
+    {
+      "id": "AGREE-DEGENERATE", "stage": "agreement",
+      "input": {"mode": "synthetic", "scenario": "prevalence-correction", "observed_rate": 0.5, "sensitivity": 0.5, "specificity": 0.5},
+      "expected_exit": 2,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "error"},
+        {"path": "reason_codes", "op": "contains", "value": "CALIBRATION_UNIDENTIFIABLE"},
+        {"path": "metrics.corrected_prevalence", "op": "eq", "value": null}
+      ]
+    },
+    {
+      "id": "HARVEST-DEDUP", "stage": "harvest",
+      "input": {"mode": "synthetic", "scenario": "two-pass-ingest", "failures": [
+        {"run_id": "A", "timestamp": "2026-11-07T01:00:00Z", "stage": "trajectory", "reason_codes": ["REQUIRED_TOOL_MISSING"], "policy_version": "v1", "normalized_input": {"actual": ["read_file", "edit_file"]}},
+        {"run_id": "B", "timestamp": "2026-11-07T02:00:00Z", "stage": "trajectory", "reason_codes": ["REQUIRED_TOOL_MISSING"], "policy_version": "v1", "normalized_input": {"actual": ["read_file", "edit_file"]}},
+        {"run_id": "C", "timestamp": "2026-11-07T03:00:00Z", "stage": "csv", "reason_codes": ["CSV_DATE"], "policy_version": "v1", "normalized_input": {"date": "2026-02-30"}}
+      ]},
+      "expected_exit": 0,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "pass"},
+        {"path": "metrics.pending_cases", "op": "eq", "value": 2},
+        {"path": "metrics.total_occurrences", "op": "eq", "value": 3},
+        {"path": "metrics.second_run_new_cases", "op": "eq", "value": 0},
+        {"path": "metrics.promoted_cases", "op": "eq", "value": 0}
+      ]
+    },
+    {
+      "id": "HARVEST-SECRET", "stage": "harvest",
+      "input": {"mode": "synthetic", "scenario": "ingest", "failure": {"stage": "trajectory", "reason_codes": ["REQUIRED_TOOL_MISSING"], "policy_version": "v1", "normalized_input": {"actual": ["read_file"]}, "debug": {"api_key": "CANARY_NOT_A_REAL_SECRET_123", "email": "synthetic.parent@example.invalid"}}, "canaries": ["CANARY_NOT_A_REAL_SECRET_123", "synthetic.parent@example.invalid"]},
+      "expected_exit": 0,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "pass"},
+        {"path": "metrics.pending_cases", "op": "eq", "value": 1},
+        {"path": "metrics.canary_leaks", "op": "eq", "value": 0},
+        {"path": "metrics.promoted_cases", "op": "eq", "value": 0}
+      ]
+    },
+    {
+      "id": "HARVEST-NO-APPROVAL", "stage": "harvest",
+      "input": {"mode": "synthetic", "scenario": "promote", "pending_id": "synthetic-pending-001", "reviewer_approval": null},
+      "expected_exit": 1,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "block"},
+        {"path": "reason_codes", "op": "contains", "value": "APPROVAL_REQUIRED"},
+        {"path": "metrics.promoted_cases", "op": "eq", "value": 0}
+      ]
+    },
+    {
+      "id": "HARVEST-UNSAFE", "stage": "harvest",
+      "input": {"mode": "synthetic", "scenario": "ingest", "failure": {"stage": "tracking", "media_path": "../../private/real-footage.mp4", "consent_record": null}},
+      "expected_exit": 1,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "block"},
+        {"path": "reason_codes", "op": "contains", "value": "UNSAFE_INPUT"},
+        {"path": "metrics.pending_cases", "op": "eq", "value": 0}
+      ]
+    }
+  ]
+}

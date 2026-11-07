@@ -1,0 +1,214 @@
+{
+  "schema_version": "1",
+  "note": "Source of truth for the toolset. Evidence labels follow vault/SCHEMA.md. verified-upstream means the command or behavior is in linked official docs. untested means no run in this kit yet.",
+  "components": [
+    {
+      "id": "contract-runner",
+      "layer": 0,
+      "name": "Contract-test runner",
+      "purpose": "Run synthetic suites and live jobs through adapters and save evidence.",
+      "use_when": ["Always. Every other component is tested through it."],
+      "avoid_when": [],
+      "proves": "An adapter returns the expected status, exit code, metrics, and artifacts for a fixture.",
+      "does_not_prove": "That the wrapped tool is correct on real data.",
+      "gate_type": "deterministic, fail-closed",
+      "hermes_surface": "CI step, pre-commit hook, or a no-agent cron script",
+      "depends_on": [],
+      "requires_any": [],
+      "upstream": [],
+      "evidence": "verified-local",
+      "synthetic_cases": [
+        {"id": "KEYS-OK", "input": "Document with all required keys", "expected_exit": 0, "expected": "pass, missing = 0"},
+        {"id": "KEYS-MISSING", "input": "Document missing two keys", "expected_exit": 1, "expected": "block, MISSING_KEYS, missing = 2"},
+        {"id": "KEYS-NOT-OBJECT", "input": "A JSON list", "expected_exit": 2, "expected": "error, NOT_OBJECT"}
+      ],
+      "sample_job": "examples/reference/job.json: check a real config file for required keys."
+    },
+    {
+      "id": "session-export",
+      "layer": 0,
+      "name": "Hermes session export",
+      "purpose": "Produce a stable JSONL record of sessions, messages, and tool calls for offline scoring.",
+      "use_when": ["A gate needs the tool-call sequence of a Hermes run.", "No trace backend is installed yet."],
+      "avoid_when": ["You need live dashboards or cost tracking across many runs. Add langfuse-trace."],
+      "proves": "Which tools a session called, in which order.",
+      "does_not_prove": "That the session's output was correct.",
+      "gate_type": "input source, not a gate",
+      "hermes_surface": "CLI: hermes sessions export <output> [--session-id ID]",
+      "depends_on": ["contract-runner"],
+      "requires_any": [],
+      "upstream": ["https://hermes-agent.nousresearch.com/docs/reference/cli-commands"],
+      "evidence": "verified-upstream",
+      "synthetic_cases": [
+        {"id": "EXPORT-SHAPE", "input": "A scripted session with three known tool calls", "expected_exit": 0, "expected": "pass, tool_calls = 3, order preserved"},
+        {"id": "EXPORT-EMPTY", "input": "A session ID that does not exist", "expected_exit": 2, "expected": "error, NO_SESSION"}
+      ],
+      "sample_job": "Export yesterday's sessions for one profile and count tool calls per session."
+    },
+    {
+      "id": "langfuse-trace",
+      "layer": 1,
+      "name": "Langfuse tracing via the Hermes plugin",
+      "purpose": "Record turns, LLM calls, tool calls, tokens, and cost for every run.",
+      "use_when": ["You need to see what an agent did across many runs.", "You need cost or latency per turn.", "You want failed sessions to become dataset items."],
+      "avoid_when": ["You need to block anything. The plugin is fail-open.", "The data includes minors or private content and capture mode has not been set to metadata."],
+      "proves": "That a run produced the expected trace shape without leaking planted canaries.",
+      "does_not_prove": "That traces are complete. A full queue, failed export, or abrupt kill can lose telemetry.",
+      "gate_type": "fail-open observer. The adapter checks trace presence and fails closed on its own.",
+      "hermes_surface": "Plugin: hermes plugins install langfuse; HERMES_LANGFUSE_BASE_URL for self-hosted; HERMES_LANGFUSE_CAPTURE=metadata|sanitized|full",
+      "depends_on": ["contract-runner"],
+      "requires_any": [],
+      "upstream": [
+        "https://hermes-agent.nousresearch.com/docs/plugins/langfuse",
+        "https://langfuse.com/docs/observability/features/masking",
+        "https://hermes-agent.nousresearch.com/docs/developer-guide/observer-hooks"
+      ],
+      "evidence": "verified-upstream",
+      "synthetic_cases": [
+        {"id": "TRACE-OK", "input": "Scripted session: 1 turn, 1 generation, 3 tool calls, 3 planted canaries, capture metadata", "expected_exit": 0, "expected": "pass, tool_calls = 3, canary_leaks = 0"},
+        {"id": "TRACE-MISSING", "input": "Same session with keys unset", "expected_exit": 2, "expected": "error, NO_TRACE. Hermes itself still completes the turn."},
+        {"id": "TRACE-LEAK", "input": "Capture full with a canary in the prompt", "expected_exit": 1, "expected": "block, CANARY_LEAK"}
+      ],
+      "sample_job": "Nightly: summarize yesterday's traces per session (model, tool calls, tokens, cost) into the vault inbox."
+    },
+    {
+      "id": "pairwise-fixtures",
+      "layer": 2,
+      "name": "Pairwise fixture generation (allpairspy)",
+      "purpose": "Generate a small fixture set that covers every pair of input variations for a parser or form.",
+      "use_when": ["An input has several independent dimensions (format, encoding, blanks, quoting).", "Exhaustive combinations are too many to keep."],
+      "avoid_when": ["Faults depend on three or more factors at once. Use n-wise or targeted cases.", "The input has one or two dimensions. Write the cases by hand."],
+      "proves": "That the code under test handles each generated fixture as its expected.json says.",
+      "does_not_prove": "Optimal coverage. The upstream project calls its output good enough, not optimal.",
+      "gate_type": "deterministic, fail-closed",
+      "hermes_surface": "Pre-commit hook or CI step. Fixture folders are read-only to the coding agent.",
+      "depends_on": ["contract-runner"],
+      "requires_any": [],
+      "upstream": ["https://github.com/thombashi/allpairspy"],
+      "evidence": "verified-upstream",
+      "synthetic_cases": [
+        {"id": "PAIRS-COVER", "input": "5 dimensions with known values", "expected_exit": 0, "expected": "pass, every value pair appears at least once"},
+        {"id": "PAIRS-SHORT-ROW", "input": "Fixture with a row missing columns", "expected_exit": 1, "expected": "block, readable row error, no stack trace"},
+        {"id": "PAIRS-EMPTY", "input": "Zero-byte file", "expected_exit": 1, "expected": "block, EMPTY_INPUT"}
+      ],
+      "sample_job": "Pre-commit: run the parser over the golden fixture folder and fail on any mismatch."
+    },
+    {
+      "id": "tool-correctness",
+      "layer": 3,
+      "name": "Trajectory scoring (DeepEval ToolCorrectnessMetric)",
+      "purpose": "Score whether a run called the expected tools, optionally in order.",
+      "use_when": ["A task has a verified procedure with a known tool sequence.", "You see loops, skipped steps, or extra tool calls."],
+      "avoid_when": ["Open-ended feature work where many sequences are valid. Score outcomes instead.", "You need an LLM judge to run offline. Leave available_tools unset to keep the score deterministic."],
+      "proves": "Tool names, and optionally order or exact match, against a golden list.",
+      "does_not_prove": "That the final output is right. Pair with the project's own tests.",
+      "gate_type": "deterministic when available_tools is not passed",
+      "hermes_surface": "CI step on each agent-authored PR, reading an exported session",
+      "depends_on": ["contract-runner", "session-export"],
+      "requires_any": [],
+      "upstream": ["https://deepeval.com/docs/metrics-tool-correctness"],
+      "evidence": "verified-upstream",
+      "synthetic_cases": [
+        {"id": "TRAJ-OK", "input": "Golden [read_file, edit_file, run_tests]; same trace", "expected_exit": 0, "expected": "pass, score 1.0"},
+        {"id": "TRAJ-LOOP", "input": "read_file six times, then the golden sequence", "expected_exit": 1, "expected": "block, STEP_EFFICIENCY"},
+        {"id": "TRAJ-SKIP", "input": "Golden without run_tests", "expected_exit": 1, "expected": "block, MISSING_TOOL"}
+      ],
+      "sample_job": "CI: score the session attached to each PR and post score and reason as a comment."
+    },
+    {
+      "id": "domain-metric",
+      "layer": 4,
+      "name": "Domain metric slot (example: TrackEval for multi-object tracking)",
+      "purpose": "Score a model pipeline with the field's standard metric instead of a generic one.",
+      "use_when": ["The project outputs something a field already measures: tracks, retrieval, detection, transcription.", "You need regression checks per category."],
+      "avoid_when": ["No labeled ground truth exists yet. Build it first.", "You only need agent-procedure checks."],
+      "proves": "Metric movement on planted faults in the expected direction.",
+      "does_not_prove": "Accuracy on real footage until labeled real data passes.",
+      "gate_type": "deterministic threshold per category",
+      "hermes_surface": "Cron job or CI step over a labeled golden folder",
+      "depends_on": ["contract-runner"],
+      "requires_any": [],
+      "upstream": [
+        "https://github.com/JonathonLuiten/TrackEval",
+        "https://github.com/JonathonLuiten/TrackEval/blob/master/docs/MOTChallenge-format.txt"
+      ],
+      "evidence": "verified-upstream",
+      "synthetic_cases": [
+        {"id": "TRACK-PERFECT", "input": "Tracker output identical to ground truth", "expected_exit": 0, "expected": "pass, HOTA near 1.0"},
+        {"id": "TRACK-SWAP", "input": "IDs swapped halfway", "expected_exit": 1, "expected": "block, association metrics drop"},
+        {"id": "TRACK-FRAME-ZERO", "input": "Frames numbered from 0", "expected_exit": 2, "expected": "error, frames must be 1-based"}
+      ],
+      "sample_job": "Watch the golden folder for new labeled clips, score them, append per-clip metrics to a CSV."
+    },
+    {
+      "id": "human-agreement",
+      "layer": 5,
+      "name": "Human agreement and judge calibration (Cohen's kappa, Rogan-Gladen)",
+      "purpose": "Check that people agree on a label before tuning a model or judge to it, then correct observed rates for known detector error.",
+      "use_when": ["A label is subjective (a coaching call, a rubric score).", "An LLM judge or detector reports a rate you plan to act on."],
+      "avoid_when": ["More than two annotators. sklearn kappa covers two.", "Detector sensitivity and specificity are unknown or sum to 1. The correction is undefined."],
+      "proves": "Whether a label is measurable, and a corrected prevalence under stated error rates.",
+      "does_not_prove": "That the corrected rate transfers to new data with different error rates.",
+      "gate_type": "deterministic threshold, human-labeled input",
+      "hermes_surface": "Agent task that reads two label exports and writes a vault note",
+      "depends_on": ["contract-runner"],
+      "requires_any": [],
+      "upstream": [
+        "https://scikit-learn.org/stable/modules/generated/sklearn.metrics.cohen_kappa_score.html",
+        "https://pmc.ncbi.nlm.nih.gov/articles/PMC7619182/"
+      ],
+      "evidence": "verified-upstream",
+      "synthetic_cases": [
+        {"id": "AGREE-HIGH", "input": "Confusion matrix rows (48, 2) and (3, 47)", "expected_exit": 0, "expected": "pass, kappa 0.90"},
+        {"id": "AGREE-SKEW", "input": "Confusion matrix rows (60, 20) and (20, 0), 60% raw agreement", "expected_exit": 1, "expected": "block, kappa -0.25"},
+        {"id": "AGREE-CORRECTION", "input": "Observed 0.41, sensitivity 0.9, specificity 0.8", "expected_exit": 0, "expected": "pass, corrected prevalence 0.30"},
+        {"id": "AGREE-DEGENERATE", "input": "Sensitivity 0.5, specificity 0.5", "expected_exit": 2, "expected": "error, UNDEFINED_CORRECTION"}
+      ],
+      "sample_job": "Compare two reviewers' tag exports, compute kappa per label, flag any label below threshold."
+    },
+    {
+      "id": "runtime-guard",
+      "layer": 6,
+      "name": "Runtime guard (Hermes pre_tool_call shell hook, fail-closed)",
+      "purpose": "Block a specific risky tool call while the agent runs, not after.",
+      "use_when": ["A tool call must never happen: writing fixtures, touching credentials, deleting outside the workdir.", "CI is too late to stop the harm."],
+      "avoid_when": ["The rule is a quality score. Score it in CI.", "The hook is slow. Default timeout is 60 seconds, capped at 300."],
+      "proves": "That a planted forbidden call is blocked and an allowed call proceeds.",
+      "does_not_prove": "Coverage of calls the matcher does not match.",
+      "gate_type": "fail-closed only with fail_closed: true",
+      "hermes_surface": "Shell hook in the profile config.yaml; verify with hermes hooks test and hermes hooks doctor",
+      "depends_on": ["contract-runner"],
+      "requires_any": [],
+      "upstream": ["https://hermes-agent.nousresearch.com/docs/user-guide/features/hooks"],
+      "evidence": "verified-upstream",
+      "synthetic_cases": [
+        {"id": "GUARD-ALLOW", "input": "Synthetic pre_tool_call payload for an allowed path", "expected_exit": 0, "expected": "pass, hook returns {}"},
+        {"id": "GUARD-BLOCK", "input": "Payload that edits a read-only fixture folder", "expected_exit": 1, "expected": "block, decision block with reason"},
+        {"id": "GUARD-CRASH", "input": "Hook script that exits non-zero with no directive", "expected_exit": 1, "expected": "block, because fail_closed is set"}
+      ],
+      "sample_job": "Guard the golden fixture folders in every coding session."
+    },
+    {
+      "id": "failure-harvest",
+      "layer": 7,
+      "name": "Failure harvesting",
+      "purpose": "Turn gate failures and human corrections into reviewable candidate fixtures.",
+      "use_when": ["At least one gate is admitted and producing failures.", "You want regressions to become permanent tests."],
+      "avoid_when": ["No gate is admitted yet. There is nothing to harvest.", "Promotion would be automatic. Promotion stays with the operator."],
+      "proves": "That failures are deduplicated, scrubbed of secrets and personal data, and queued for review.",
+      "does_not_prove": "That a harvested case is a correct golden. A person decides.",
+      "gate_type": "deterministic scrub and dedupe; human promotion",
+      "hermes_surface": "Weekly cron that lists pending cases in the vault inbox",
+      "depends_on": ["contract-runner"],
+      "requires_any": ["tool-correctness", "pairwise-fixtures", "domain-metric", "human-agreement"],
+      "upstream": [],
+      "evidence": "untested",
+      "synthetic_cases": [
+        {"id": "HARVEST-DEDUP", "input": "Two near-identical failures and one distinct failure", "expected_exit": 0, "expected": "pass, 2 pending cases"},
+        {"id": "HARVEST-SECRET", "input": "Failure containing a planted API-key canary", "expected_exit": 0, "expected": "pass, canary absent from the pending file"},
+        {"id": "HARVEST-NO-APPROVAL", "input": "Request to promote without an operator approval record", "expected_exit": 1, "expected": "block, APPROVAL_REQUIRED"}
+      ],
+      "sample_job": "Weekly: list pending cases in the vault inbox for review."
+    }
+  ]
+}

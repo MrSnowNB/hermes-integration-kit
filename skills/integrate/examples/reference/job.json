@@ -1,0 +1,11 @@
+{
+  "schema_version": "1",
+  "id": "JOB-REFERENCE-CONFIG-CHECK",
+  "stage": "required-keys",
+  "timeout_s": 30,
+  "input": {
+    "mode": "live",
+    "path": "sample-config.json",
+    "required": ["name", "version", "owner"]
+  }
+}

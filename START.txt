@@ -1,0 +1,12 @@
+hermes-integration-kit
+
+README.md          what this is and how to install the skill
+AGENTS.md          rules for any agent working in this repo or using the skill
+skills/integrate/  the agent skill: SKILL.md, runner, scaffolder, templates
+vault/             open this in Obsidian. Start at CHARTER, then when-to-use.
+
+First check:
+
+  python skills/integrate/scripts/check_kit.py
+
+One component at a time. Gate, pin, synthetic, job, admit.

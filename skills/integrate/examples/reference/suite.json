@@ -1,0 +1,63 @@
+{
+  "schema_version": "1",
+  "suite_id": "reference-required-keys-v1",
+  "adapters": {
+    "required-keys": ["{python}", "{root}/adapters/required_keys.py"]
+  },
+  "cases": [
+    {
+      "id": "KEYS-OK",
+      "stage": "required-keys",
+      "input": {
+        "mode": "synthetic",
+        "required": ["name", "version", "owner"],
+        "document": {"name": "demo", "version": "1.0.0", "owner": "ops"}
+      },
+      "expected_exit": 0,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "pass"},
+        {"path": "metrics.missing", "op": "eq", "value": 0},
+        {"path": "artifacts", "op": "contains", "value": "missing.json"}
+      ]
+    },
+    {
+      "id": "KEYS-MISSING",
+      "stage": "required-keys",
+      "input": {
+        "mode": "synthetic",
+        "required": ["name", "version", "owner"],
+        "document": {"name": "demo"}
+      },
+      "expected_exit": 1,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "block"},
+        {"path": "reason_codes", "op": "contains", "value": "MISSING_KEYS"},
+        {"path": "metrics.missing", "op": "eq", "value": 2}
+      ]
+    },
+    {
+      "id": "KEYS-NOT-OBJECT",
+      "stage": "required-keys",
+      "input": {
+        "mode": "synthetic",
+        "required": ["name"],
+        "document": ["not", "an", "object"]
+      },
+      "expected_exit": 2,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "error"},
+        {"path": "reason_codes", "op": "contains", "value": "NOT_OBJECT"}
+      ]
+    },
+    {
+      "id": "KEYS-NO-SPEC",
+      "stage": "required-keys",
+      "input": {"mode": "synthetic", "required": [], "document": {"name": "demo"}},
+      "expected_exit": 2,
+      "assertions": [
+        {"path": "status", "op": "eq", "value": "error"},
+        {"path": "reason_codes", "op": "contains", "value": "BAD_SPEC"}
+      ]
+    }
+  ]
+}
