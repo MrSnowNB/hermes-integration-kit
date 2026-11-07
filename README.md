@@ -45,7 +45,7 @@ It has two audiences:
 
 ## Quick start
 
-Requires Python 3.9 or later. No packages.
+Requires Python 3.10 or later. No packages. CI runs 3.10 and 3.13.
 
 ```text
 git clone https://github.com/MrSnowNB/hermes-integration-kit.git
